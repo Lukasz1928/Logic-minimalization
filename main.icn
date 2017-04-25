@@ -1,0 +1,9 @@
+procedure main()
+	while line := read() do {
+		#write(*line)
+		write(line[1:-1])
+		#write(many(&lcase, line, 1, -1))
+		#if write(many(&lcase || 'TF~^|&() ', line, 1, *line)) then write("ERROR")
+		#write("A")
+	}
+end
