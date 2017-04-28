@@ -1,9 +1,31 @@
 procedure main()
 	while line := read() do {
-		#write(*line)
-		write(line[1:-1])
-		#write(many(&lcase, line, 1, -1))
-		#if write(many(&lcase || 'TF~^|&() ', line, 1, *line)) then write("ERROR")
-		#write("A")
+		if(many(&lcase || 'TF~^&|()> \t', line) > *line) then {
+			line := remove_spaces(line)
+			line := remove_brackets(line)
+			to_RPN(line)
+			}
+		else write("ERROR")
 	}
+end
+
+procedure remove_spaces(line) #TODO: write it in more icon-like way
+	new_line := ""
+	every (i := 1 to *line) do {
+		if line[i] ~== ' ' & line[i] ~== '\t' then {
+			new_line ||:= line[i]
+		} 
+	}
+	return new_line
+end
+
+procedure remove_brackets(line) #removes brackets around expression
+	while line ?:= 2(="(", tab(bal(')')), pos(-1))
+	return line
+end
+
+procedure to_RPN(line) #converts expression in infix notation to RPN
+	line ? { expr1 := 1(tab(bal('>')), move(1)); expr2 := tab(0)} #divides expression with '>' into two parts, with division point at '>'
+	
+	write(expr1, " ", expr2)
 end
