@@ -2,12 +2,75 @@ procedure main()
 	while line := read() do {
 		if(many(&lcase || 'TF~^&|()> \t', line) > *line) then {
 			line := remove_spaces(line)
-			line := remove_brackets(line)
-			to_RPN(line)
+			line := split(line)
+			RPN_expr := to_RPN(line)
+			var := variables(RPN_expr)
+			if *var = 0 then {
+				write(if count_value(RPN_expr, var) = 1 then "T" else "F")
 			}
+			else {
+				true_values := set()
+				every code := gray_code(*var)\(2^*var) do {
+					val := assign_values(code, var)
+					if count_value(RPN_expr, val) == "1" then insert(true_values, code)
+				}
+				if *true_values = 2^*var then write("T")
+				else if *true_values = 0 then write ("F")
+				else {
+					#every write(!true_values)
+					x := reduce(true_values)
+					print_result(x, var)
+				}
+			}
+		}
 		else write("ERROR")
 	}
 end
+
+procedure print_result(s, variables)
+	res := ""
+	every v := !s do {
+		every i := 1 to *v do {
+			if v[i] == "-" then next
+			if v[i] == "0" then res ||:="~"
+			res ||:= variables[i] || "&" #TODO: change it to display correct variables
+		}
+		res := res[1:-1]
+		res ||:= "|"
+	}
+	write(res[1:-1])
+end
+
+procedure join(s1, s2)
+	difs := 0
+	#write("join: ", s1, " ", s2)
+	every i := 1 to *s1 do {
+		#write("j1: ", s1[i], " ", s2[i])
+		if s1[i] ~== s2[i] then {
+			#write("if: ", s1[i], " ", s2[i])
+			s1[i] := "-"
+			#write("if: ", s1[i], " ", s2[i])
+			difs +:= 1
+		}
+	}
+	if difs = 1 then return s1
+end
+
+procedure reduce(s)
+	s1 := set()
+	b := 0
+	every v1 := !s do {
+		a := 0
+		every v2 := !s do
+			#write(v1, " ", v2)
+			if insert(s1, join(v1, v2)) then a := b := 1
+		if a = 0 then insert(s1, v1)
+	}
+	if b = 1 then return reduce(s1)
+	else return s1
+end
+
+
 
 procedure remove_spaces(line) #TODO: write it in more icon-like way
 	new_line := ""
@@ -24,8 +87,184 @@ procedure remove_brackets(line) #removes brackets around expression
 	return line
 end
 
-procedure to_RPN(line) #converts expression in infix notation to RPN
-	line ? { expr1 := 1(tab(bal('>')), move(1)); expr2 := tab(0)} #divides expression with '>' into two parts, with division point at '>'
-	
-	write(expr1, " ", expr2)
+procedure split(line) #removes '>' and '^', adds brackets
+	return split_not(split_xor(split_and_or(split_implication(line))))
+end
+
+procedure split_implication(line) #divides expression with '>' into two parts, with division point at first '>'
+	line := remove_brackets(line)
+	#write(">: ", line)
+	expr1 := ""
+	expr2 := ""
+	i := 0
+	line ? { 
+		expr1 := 1(tab(bal('>')), move(1))
+		expr2 := tab(0)
+	} 
+	if expr1 ~== "" & expr2 ~== "" then return "(~(" || split(expr1) || "))|(" || split(expr2) || ")"
+	else return line    #there is no '>' in line
+end
+
+procedure split_xor(line) #converts "a^b" to "a~b | ~ab"
+	line := remove_brackets(line)
+	#write("^: ", line)
+	expr1 := ""
+	expr2 := ""
+	line ? {
+		expr1 := 1(tab(bal('^')), move(1))
+		expr2 := tab(0)
+	}
+	if expr1 ~== "" & expr2 ~== "" then {
+		expr1 := split(expr1)
+		expr2 := split(expr2)
+		return "(" || expr1 || "&~(" || expr2 || "))|((~" || expr1 || ")&" || expr2 || ")"
+	}
+	else return line
+end
+
+procedure split_and_or(line)
+	line := remove_brackets(line)
+	#write("&|: ", line)
+	expr1 := ""
+	expr2 := ""
+	expr3 := ""
+	op1 := ""
+	op2 := ""
+	line ? {
+		expr1 := tab(bal('&|'))
+		op1 := move(1)
+		expr2 := 1(tab(bal('&|')), op2 := move(1))
+		#op2 := move(1)
+		expr3 := tab(0)
+	}
+	if expr1 ~== "" & expr2 ~== "" then {
+		expr1 := split(expr1)
+		expr2 := split(expr2)
+		if expr3 ~== "" then {
+			expr3 := split(expr3)
+			return "((" || expr1 || ")" || op1 ||"(" || expr2 || "))" || op2 || "(" || expr3 || ")"
+		}
+		else return "(" || expr1 || ")" || op1 ||"(" || expr2 || ")"
+	}
+	else if expr1 ~== "" & expr3 ~== "" then {
+		expr1 := split(expr1)
+		expr3 := split(expr3)
+		return "(" || expr1 || ")" || op1 ||"(" || expr3 || ")"
+	}
+	else return line
+end
+
+procedure split_not(line)
+	line := remove_brackets(line)
+	#write("~: ", line)
+	if line[1] ~== '~' then return line
+	expr := ""
+	line ? { 
+		expr := 3(tab(bal('~')), move(1), tab(0))
+	}
+	if expr ~== "" & expr ~== line then return "~(" || split(expr) || ")"
+	else return line
+end
+
+procedure to_RPN(line) #converts expression to RPN
+	stack := list()
+	RPN_expr := ""
+	prior := priorities()
+	every i := !line do {
+		if (ord(i) >= 97 & ord(i) <=122) | ord(i) = 84 | ord(i) = 70 then RPN_expr ||:= i
+		else if i == "(" then push(stack, i)
+		else if i == ")" then {
+			while (op := pop(stack)) ~== "(" do RPN_expr ||:= op;
+		}
+		else { #operator or "(", ")"
+			if (op := pop(stack)) then {
+				if op == "(" then {
+					push(stack, "(");
+					push(stack, i);
+				}
+				else if op == ")" then {
+					while (op := pop(stack)) ~== "(" do RPN_expr ||:= op
+				}
+				else if prior[i] > prior[op] then {
+					push(stack, op)
+					push(stack, i)
+				}
+				else {
+					while prior[op := pop(stack)] >= prior[i] do RPN_expr ||:= op;
+					push(stack, i)
+				}
+			}
+			else push(stack, i);
+		}
+	}
+	while op := pop(stack) do RPN_expr ||:= op
+	return RPN_expr
+end
+
+procedure count_value(expr, values) #counts value of RPN expression for given values
+	stack := list()
+	every i := !expr do {
+		if (ord(i) >= 97 & ord(i) <= 122) then push(stack, i)
+		else if i == "T" then push(stack, "1")
+		else if i == "F" then push(stack, "0")
+		else if i == '~' then push(stack, not_(values[pop(stack)]))
+		else if i == "&" then push(stack, and(values[pop(stack)], values[pop(stack)]))
+		else if i == "|" then push(stack, or(values[pop(stack)], values[pop(stack)]))
+	}
+	return pop(stack)
+end
+
+procedure variables(line) #returns string of variables used in line
+	return &lcase ** line
+end
+
+procedure assign_values(code, variables) #assigns i-th code byte to i-th variable for each i < code length
+	values := table("0")
+	idx := 0
+	every i := 1 to *code do {
+		values[variables[i]] := code[i]
+	}
+	values["1"] := "1"
+	values["0"] := "0"
+	return values
+end
+
+procedure priorities() #returns table of operator priorities
+	priority := table()
+	priority["~"] := 4
+	priority["^"] := 3
+	priority["&"] := 2
+	priority["|"] := 2
+	priority[">"] := 1
+	return priority
+end
+
+procedure gray_code(length) #generates cyclic gray code of given length
+	if length <= 0 then fail
+	L := list(2^length)
+	L[1] := 0
+	L[2] := 1
+	every len := 2 to length do {
+		every i := 1 to 2^(len-1) do {
+			L[2 ^ len - i + 1] := "1" || L[i]
+			L[i] := "0" || L[i]
+		}
+	}
+	i := 0
+	l := 2 ^ length
+	repeat {
+		suspend L[i := i % l + 1]
+	}
+end
+
+procedure and(arg1, arg2) 
+	return if (arg1 == "1" & arg2 == "1") then "1" else "0"
+end
+
+procedure or(arg1, arg2)
+	return if (arg1 == "1" | arg2 == "1") then "1" else "0"
+end
+
+procedure not_(arg)
+	return if(arg == "1") then "0" else "1"
 end
