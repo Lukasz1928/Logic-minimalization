@@ -1,68 +1,183 @@
 procedure main()
 	while line := read() do {
-		if(many(&lcase || 'TF~^&|()> \t', line) > *line) then {
-			line := remove_spaces(line)
-			line := split(line)
-			RPN_expr := to_RPN(line)
-			var := variables(RPN_expr)
-			if *var = 0 then {
-				write(if count_value(RPN_expr, var) = 1 then "T" else "F")
-			}
+		raw := line := remove_whites(line)
+		if is_correct(line) then {
+			line := map(to_RPN(line), "TF", "10")                                       #convert line to RPN and replace T with 1, and F with 0
+			true_args := set()                                                          #set of arguments sequances satisfying line = 1
+			every args := binary_sequence(*(cset(line) ** &lcase)) do 
+				if value(line, args) = 1 then insert(true_args, args)
+			if *true_args = 0 then write("F")                                           #if no set of arguments satisfies line = 1 then it's always false
+			else if *true_args = 2 ^ (*(cset(line) ** &lcase)) then write("T")          #if all sets of arguments satisfy line = 1 then it's always true
 			else {
-				true_values := set()
-				every code := gray_code(*var)\(2^*var) do {
-					val := assign_values(code, var)
-					if count_value(RPN_expr, val) == "1" then insert(true_values, code)
-				}
-				if *true_values = 2^*var then write("T")
-				else if *true_values = 0 then write ("F")
-				else {
-					#every write(!true_values)
-					x := reduce(true_values)
-					print_result(x, var)
-				}
+				products := get_products_list(reduce(true_args), cset(line) ** &lcase)  #get list of products in line, eg. for line:="(a&b)|(~c&d)" , prodcuts :=["a&b", "~c&d"]
+				elements := search_function(products)                                   #chceck if products may be written using ">" or "^"
+				products := min_subset(elements, true_args)                             #find minimal set of products equivalent to products
+				result := list_to_string(products) 										#convert list to string
+				write(if *result < *raw then result else raw)                           #if result is shorter than input data then print it
 			}
 		}
-		else write("ERROR")
+		else write("ERROR")                                                             #if input data format is wrong
 	}
 end
 
-procedure print_result(s, variables)
+procedure search_function(products) #searches products for possible XOR or IMPLICATION use
+	r := set()
+	if *products < 2 then return products
+	every s := combination(products, 2) do { #generate all 2-element subsets of prodcucts
+		insert(r, search_XOR(s[1], s[2]))
+		insert(r, search_IMPL(s[1], s[2]))
+		insert(r, s[1])
+		insert(r, s[2])
+	}
+	res := list()
+	every i := !r do push(res, i)
+	return res
+end
+
+procedure search_XOR(s1, s2) #checks if s1|s2 may be written using XOR, if so returns expression with XOR, but fails otherwise
+	true1 := ""  #variables without negation in s1, eg. if s1 := "a&b&c&~d&~e", then true1 := "abc"
+	true2 := ""  #variables without negation in s2
+	false1 := "" #variables with negation in s1, eg. if s1 := "a&b&c&~d&~e", then false1 := "de"
+	false2 := "" #variables with negation in s2
+	if s1[1] === "~" then false1 ||:= s1[2] else true1 ||:= s1[1]
+	every id := upto('&', s1) do 
+		if s1[id + 1] === "~" then false1 ||:= s1[id + 2] else true1 ||:= s1[id + 1]
+	if s2[1] === "~" then false2 ||:= s2[2] else true2 ||:= s2[1]
+	every id := upto('&', s2) do 
+		if s2[id + 1] === "~" then false2 ||:= s2[id + 2] else true2 ||:= s2[id + 1]
+	if (true1 | true2 | false1 | false2) == "" then fail #if any is empty than there is no XOR in expression
+	if true1 === false2 & true2 === false1 then {        # there is XOR in expression
+		res  := (if *true1 = 1 then "" else "(")         #result string with expression with XOR
+		every i := !true1 do res ||:= i || "&"
+		res := res[-1 : 1] || (if *true1 = 1 then "" else ")") || "^" || (if *false1 = 1 then "" else "(")
+		every i := !false1 do res ||:= i || "&"
+		res := res[-1 : 1] || (if *false1 = 1 then "" else ")")
+		return res
+	}
+end
+
+procedure search_IMPL(s1, s2) #checks if s1|s2 may be written using IMPLICATION, if so returns expression with IMPLICATION, fails otherwise
+	true1 := ""  #variables without negation in s1, eg. if s1 := "a&b&c&~d&~e", then true1 := "abc"
+	true2 := ""  #variables without negation in s2
+	false1 := "" #variables with negation in s1, eg. if s1 := "a&b&c&~d&~e", then false1 := "de"
+	false2 := "" #variables with nagation in s2
+	if s1[1] === "~" then false1 ||:= s1[2] else true1 ||:= s1[1]
+	every id := upto('&', s1) do 
+		if s1[id + 1] === "~" then false1 ||:= s1[id + 2] else true1 ||:= s1[id + 1]
+	if s2[1] === "~" then false2 ||:= s2[2] else true2 ||:= s2[1]
+	every id := upto('&', s2) do 
+		if s2[id + 1] === "~" then false2 ||:= s2[id + 2] else true2 ||:= s2[id + 1]
+	if (*true1 > 0 | *false2 > 0) & (*true2 = 0 & *false1 = 0) then {
+		res := (if *false2 > 1 then "(" else "")
+		every i := !false2 do res ||:= i || "|"
+		res := res[-1 : 1] || ">"
+		every i := !true1 do res ||:= i || "&"
+		res := res[-1 : 1]
+		return res
+	}
+	else if (*true2 > 0 | *false1 > 0) & (*true1 = 0 & *false2 = 0) then {
+		res := (if *false1 > 1 then "(" else "")
+		every i := !false1 do res ||:= i || "|"
+		res := res[-1 : 1] || ">"
+		every i := !true2 do res ||:= i || "&"
+		res := res[-1 : 1]
+		return res
+	}
+end
+
+procedure is_correct(expr)  #check if expr has correct form
+	if expr ? {W() & pos(0)} then return expr
+end
+
+procedure W() #check if W ::= S | S|W
+	suspend S() | (S() || ="|" || W())
+end
+
+procedure S() #check if S ::= C | C&S
+	suspend C() | (C() || ="&" || S())
+end
+
+procedure C() #check if C ::= X | X>C
+	suspend X() | (X() || =">" || C())
+end
+
+procedure X() #check if X ::= I^X
+	suspend I() | (I() || ="^" || X())
+end
+
+procedure I() #check if I ::= a|b|c|...|z|(W)|~W
+	suspend (=(!&lcase | !"TF")) | (="(" || W() || =")") | (="~" || W())
+end
+
+procedure subsets(s) #generates all subsets of s with decreasing subset cardinality
+	suspend combination(s, *s - (0 to (*s - 1)))
+end
+
+procedure combination(s, k) #generates all k-element combinations of s
+	suspend if *s = k then s else combination(s[2:0], k) | [s[1]] ||| combination(s[2:0], k-1)
+end
+
+procedure trim_args(all_args, used_args, values) #removes bits from values which have no corresponding variable in used_args but have one in all_args
+												 #eg. if all_args := "abcde", used_args := "bde", values := "10101", then new_values := "001"
+	new_values := ""
+	every i := 1 to *all_args do
+		if upto(all_args[i], used_args) then new_values ||:= values[i]
+	return new_values
+end
+
+procedure get_args(products) #produces string containing all variables used in products
+	args := ""
+	every i := !products do args ||:= i
+	return string(cset(args) ** &lcase)
+end
+
+procedure min_subset(products, true_args) #calculates minimal subset of products that satisfy all true_args
+	min := products
+	all_args := get_args(products)    #string of all arguments(variables) in products
+	every s := subsets(products) do
+		if not(value(to_RPN(list_to_string(s)), trim_args(all_args, get_args(s), !true_args)) = 0) & *list_to_string(s) < *list_to_string(min) then min := s
+	return min
+end
+
+procedure list_to_string(list)  #converts list of products(written as strings) to string
+	if *list == 0 then return ""
+	if *list == 1 then return list[1]
 	res := ""
+	every prod := !list do res ||:= "|" || (if *prod > 2 then ("(" || prod || ")") else prod)
+	return res[2:0]
+end
+
+procedure get_products_list(s, variables)
+	res := [] #list of products
 	every v := !s do {
+		curr := "" #one product
 		every i := 1 to *v do {
 			if v[i] == "-" then next
-			if v[i] == "0" then res ||:="~"
-			res ||:= variables[i] || "&" #TODO: change it to display correct variables
+			if v[i] == "0" then curr ||:="~"
+			curr ||:= variables[i] || "&"
 		}
-		res := res[1:-1]
-		res ||:= "|"
+		push(res, curr[-1:1])
 	}
-	write(res[1:-1])
+	return res
 end
 
-procedure join(s1, s2)
+procedure join(s1, s2) #checks if s1, s2 differ on exactly one position, if so inserts "-" at this position and return, fails otherwise
 	difs := 0
-	#write("join: ", s1, " ", s2)
 	every i := 1 to *s1 do {
-		#write("j1: ", s1[i], " ", s2[i])
 		if s1[i] ~== s2[i] then {
-			#write("if: ", s1[i], " ", s2[i])
 			s1[i] := "-"
-			#write("if: ", s1[i], " ", s2[i])
 			difs +:= 1
 		}
 	}
 	if difs = 1 then return s1
 end
 
-procedure reduce(s)
+procedure reduce(s) #reduce set s using Quine-McCluskey algorithm
 	s1 := set()
 	b := 0
 	every v1 := !s do {
 		a := 0
 		every v2 := !s do
-			#write(v1, " ", v2)
 			if insert(s1, join(v1, v2)) then a := b := 1
 		if a = 0 then insert(s1, v1)
 	}
@@ -70,201 +185,43 @@ procedure reduce(s)
 	else return s1
 end
 
-
-
-procedure remove_spaces(line) #TODO: write it in more icon-like way
+procedure remove_whites(line) #removes all spaces and tabs from line
 	new_line := ""
-	every (i := 1 to *line) do {
-		if line[i] ~== ' ' & line[i] ~== '\t' then {
-			new_line ||:= line[i]
-		} 
+	every i := !line do {
+		if i ~== ' ' & i ~== '\t' then new_line ||:= i
 	}
 	return new_line
 end
 
-procedure remove_brackets(line) #removes brackets around expression
-	while line ?:= 2(="(", tab(bal(')')), pos(-1))
+procedure to_RPN(line) #converts line to reverse polish notation 
+	while line ?:= 2(="(", tab(bal(")")), pos(-1))
+	line ? every p := bal('>')
+	if \p then return to_RPN(line[1:p]) || to_RPN(line[p+1:0]) || line[p]
+	line ? every p := bal('&|')
+	if \p then return to_RPN(line[1:p]) || to_RPN(line[p+1:0]) || line[p]
+	line ? every p := bal('^')
+	if \p then return to_RPN(line[1:p]) || to_RPN(line[p+1:0]) || line[p]
+	if line[1] == "~" then return to_RPN(line[2:0]) || line[1]
 	return line
 end
 
-procedure split(line) #removes '>' and '^', adds brackets
-	return split_not(split_xor(split_and_or(split_implication(line))))
-end
-
-procedure split_implication(line) #divides expression with '>' into two parts, with division point at first '>'
-	line := remove_brackets(line)
-	#write(">: ", line)
-	expr1 := ""
-	expr2 := ""
-	i := 0
-	line ? { 
-		expr1 := 1(tab(bal('>')), move(1))
-		expr2 := tab(0)
-	} 
-	if expr1 ~== "" & expr2 ~== "" then return "(~(" || split(expr1) || "))|(" || split(expr2) || ")"
-	else return line    #there is no '>' in line
-end
-
-procedure split_xor(line) #converts "a^b" to "a~b | ~ab"
-	line := remove_brackets(line)
-	#write("^: ", line)
-	expr1 := ""
-	expr2 := ""
-	line ? {
-		expr1 := 1(tab(bal('^')), move(1))
-		expr2 := tab(0)
-	}
-	if expr1 ~== "" & expr2 ~== "" then {
-		expr1 := split(expr1)
-		expr2 := split(expr2)
-		return "(" || expr1 || "&~(" || expr2 || "))|((~" || expr1 || ")&" || expr2 || ")"
-	}
-	else return line
-end
-
-procedure split_and_or(line)
-	line := remove_brackets(line)
-	#write("&|: ", line)
-	expr1 := ""
-	expr2 := ""
-	expr3 := ""
-	op1 := ""
-	op2 := ""
-	line ? {
-		expr1 := tab(bal('&|'))
-		op1 := move(1)
-		expr2 := 1(tab(bal('&|')), op2 := move(1))
-		#op2 := move(1)
-		expr3 := tab(0)
-	}
-	if expr1 ~== "" & expr2 ~== "" then {
-		expr1 := split(expr1)
-		expr2 := split(expr2)
-		if expr3 ~== "" then {
-			expr3 := split(expr3)
-			return "((" || expr1 || ")" || op1 ||"(" || expr2 || "))" || op2 || "(" || expr3 || ")"
-		}
-		else return "(" || expr1 || ")" || op1 ||"(" || expr2 || ")"
-	}
-	else if expr1 ~== "" & expr3 ~== "" then {
-		expr1 := split(expr1)
-		expr3 := split(expr3)
-		return "(" || expr1 || ")" || op1 ||"(" || expr3 || ")"
-	}
-	else return line
-end
-
-procedure split_not(line)
-	line := remove_brackets(line)
-	#write("~: ", line)
-	if line[1] ~== '~' then return line
-	expr := ""
-	line ? { 
-		expr := 3(tab(bal('~')), move(1), tab(0))
-	}
-	if expr ~== "" & expr ~== line then return "~(" || split(expr) || ")"
-	else return line
-end
-
-procedure to_RPN(line) #converts expression to RPN
-	stack := list()
-	RPN_expr := ""
-	prior := priorities()
-	every i := !line do {
-		if (ord(i) >= 97 & ord(i) <=122) | ord(i) = 84 | ord(i) = 70 then RPN_expr ||:= i
-		else if i == "(" then push(stack, i)
-		else if i == ")" then {
-			while (op := pop(stack)) ~== "(" do RPN_expr ||:= op;
-		}
-		else { #operator or "(", ")"
-			if (op := pop(stack)) then {
-				if op == "(" then {
-					push(stack, "(");
-					push(stack, i);
-				}
-				else if op == ")" then {
-					while (op := pop(stack)) ~== "(" do RPN_expr ||:= op
-				}
-				else if prior[i] > prior[op] then {
-					push(stack, op)
-					push(stack, i)
-				}
-				else {
-					while prior[op := pop(stack)] >= prior[i] do RPN_expr ||:= op;
-					push(stack, i)
-				}
-			}
-			else push(stack, i);
+procedure value(expr, args) #calculates value of expr expression in RPN for variable values given in arg
+	expr := map(expr, cset(expr) ** &lcase, args)
+	s := []
+	every e := !expr do {
+		if e == !"01" then push(s, e) #if value then push to stack
+		else case e of {              #if operator then apply that operator to adequate number of arguments from stack
+			"&" : push(s, iand(pop(s), pop(s)))
+			"|" : push(s, ior(pop(s), pop(s)))
+			">" : push(s, ior(pop(s), 1-pop(s)))
+			"^" : push(s, ixor(pop(s), pop(s)))
+			"~" : push(s, 1-pop(s))
 		}
 	}
-	while op := pop(stack) do RPN_expr ||:= op
-	return RPN_expr
+	return pop(s)
 end
 
-procedure count_value(expr, values) #counts value of RPN expression for given values
-	stack := list()
-	every i := !expr do {
-		if (ord(i) >= 97 & ord(i) <= 122) then push(stack, i)
-		else if i == "T" then push(stack, "1")
-		else if i == "F" then push(stack, "0")
-		else if i == '~' then push(stack, not_(values[pop(stack)]))
-		else if i == "&" then push(stack, and(values[pop(stack)], values[pop(stack)]))
-		else if i == "|" then push(stack, or(values[pop(stack)], values[pop(stack)]))
-	}
-	return pop(stack)
-end
-
-procedure variables(line) #returns string of variables used in line
-	return &lcase ** line
-end
-
-procedure assign_values(code, variables) #assigns i-th code byte to i-th variable for each i < code length
-	values := table("0")
-	idx := 0
-	every i := 1 to *code do {
-		values[variables[i]] := code[i]
-	}
-	values["1"] := "1"
-	values["0"] := "0"
-	return values
-end
-
-procedure priorities() #returns table of operator priorities
-	priority := table()
-	priority["~"] := 4
-	priority["^"] := 3
-	priority["&"] := 2
-	priority["|"] := 2
-	priority[">"] := 1
-	return priority
-end
-
-procedure gray_code(length) #generates cyclic gray code of given length
-	if length <= 0 then fail
-	L := list(2^length)
-	L[1] := 0
-	L[2] := 1
-	every len := 2 to length do {
-		every i := 1 to 2^(len-1) do {
-			L[2 ^ len - i + 1] := "1" || L[i]
-			L[i] := "0" || L[i]
-		}
-	}
-	i := 0
-	l := 2 ^ length
-	repeat {
-		suspend L[i := i % l + 1]
-	}
-end
-
-procedure and(arg1, arg2) 
-	return if (arg1 == "1" & arg2 == "1") then "1" else "0"
-end
-
-procedure or(arg1, arg2)
-	return if (arg1 == "1" | arg2 == "1") then "1" else "0"
-end
-
-procedure not_(arg)
-	return if(arg == "1") then "0" else "1"
+procedure binary_sequence(len) #generate all binary sequances of length len
+	if len = 0 then suspend ""
+	else suspend !"01" || binary_sequence(len - 1)
 end
