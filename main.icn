@@ -147,7 +147,7 @@ procedure list_to_string(list)  #converts list of products(written as strings) t
 	return res[2:0]
 end
 
-procedure get_products_list(s, variables)
+procedure get_products_list(s, variables) #converts set of binary sequances from Quine-McCluskey algorithm to list of products
 	res := [] #list of products
 	every v := !s do {
 		curr := "" #one product
